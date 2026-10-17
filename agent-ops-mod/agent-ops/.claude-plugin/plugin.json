@@ -1,0 +1,20 @@
+{
+  "name": "agent-ops",
+  "version": "0.1.0",
+  "description": "Live agents dashboard: status, activity, progress, live tokens, model and effort, plus day/week/month usage by model",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "planMonthlyUsd": {
+      "type": "number",
+      "title": "Subscription price per month (USD)",
+      "description": "What you pay for your Claude plan, compared against the API-equivalent cost on the Economics tab",
+      "default": 200
+    },
+    "projectAliases": {
+      "type": "string",
+      "title": "Project merges",
+      "description": "Extra folder-to-project merges, comma separated, e.g. infra-repo=my-app. Repos whose name extends another's (aws-iac-my-app) merge automatically",
+      "default": ""
+    }
+  }
+}

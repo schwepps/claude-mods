@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+__pycache__/
+*.log
+.mcpb-cache/
+.claude-plugin/types/
+agent-ops-mod/agent-ops-mockups.html

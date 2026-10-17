@@ -1,0 +1,17 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "schwepps", "url": "https://github.com/schwepps" },
+  "description": "Claude Code mods: per-turn model routing and a live agents dashboard.",
+  "plugins": [
+    {
+      "name": "model-router",
+      "source": "./model-picker-mod",
+      "description": "Routes each turn and subagent to the cheapest Claude model that keeps quality"
+    },
+    {
+      "name": "agent-ops",
+      "source": "./agent-ops-mod/agent-ops",
+      "description": "Live agents dashboard with usage and cost by model"
+    }
+  ]
+}

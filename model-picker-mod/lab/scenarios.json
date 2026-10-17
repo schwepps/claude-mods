@@ -1,0 +1,118 @@
+{
+  "home": "opus",
+  "scenarios": [
+    {
+      "name": "trivial git op detours to haiku",
+      "allowedTools": "Bash(git status:*)",
+      "turns": [{ "prompt": "git status", "expect": { "main": ["haiku"] } }]
+    },
+    {
+      "name": "hard reasoning stays on opus",
+      "turns": [
+        {
+          "prompt": "Investigate the root cause: why can a race condition happen when two processes append to the same file? Three sentences, no tools.",
+          "expect": { "main": ["opus"] }
+        }
+      ]
+    },
+    {
+      "name": "inline override lasts one turn and is stripped",
+      "turns": [
+        {
+          "prompt": "::haiku Repeat back, word for word, the exact message I just sent you. Nothing else.",
+          "expect": { "main": ["haiku"], "answerExcludes": "::haiku" }
+        },
+        {
+          "prompt": "Design the architecture for a plugin system for calc.py and weigh the trade-offs. Three sentences, no tools.",
+          "expect": { "main": ["opus"] }
+        }
+      ]
+    },
+    {
+      "name": "pin and unpin across turns",
+      "turns": [
+        { "prompt": "::sonnet", "expect": { "dropped": true } },
+        { "prompt": "Design a caching layer for calc.py and weigh the trade-offs. Two sentences, no tools.", "expect": { "main": ["sonnet"] } },
+        { "prompt": "::auto", "expect": { "dropped": true } },
+        { "prompt": "Design a caching layer for calc.py and weigh the trade-offs. Two sentences, no tools.", "expect": { "main": ["opus"] } }
+      ]
+    },
+    {
+      "name": "follow-up keeps the current model",
+      "turns": [
+        {
+          "prompt": "Design the architecture for a plugin system for calc.py and weigh the trade-offs. Three sentences, no tools.",
+          "expect": { "main": ["opus"] }
+        },
+        { "prompt": "ok, continue", "expect": { "main": ["opus"] } }
+      ]
+    },
+    {
+      "name": "correction after a detour returns home",
+      "allowedTools": "Bash(git log:*)",
+      "turns": [
+        { "prompt": "git log --oneline", "expect": { "main": ["haiku"] } },
+        { "prompt": "that's wrong, try again", "expect": { "main": ["opus"] } }
+      ]
+    },
+    {
+      "name": "repeated tool failures on haiku escalate mid-turn",
+      "allowedTools": "Bash(ls:*)",
+      "turns": [
+        {
+          "prompt": "::haiku Run these three shell commands as three separate Bash tool calls, one after another, even though they will fail: ls /nope-1, then ls /nope-2, then ls /nope-3. Then summarise in one sentence.",
+          "expect": { "mainStartsWith": "haiku", "mainEndsWith": "opus" }
+        }
+      ]
+    },
+    {
+      "name": "Explore subagent runs on haiku",
+      "allowedTools": "Read,Grep,Glob,Task,Agent",
+      "turns": [
+        {
+          "prompt": "Use the Explore subagent, in the foreground (not in the background), to find which file defines the add function. Reply with just the file name.",
+          "expect": { "sub": ["haiku"] }
+        }
+      ]
+    },
+    {
+      "name": "general-purpose subagent sized by its task",
+      "allowedTools": "Read,Edit,Write,Task,Agent",
+      "turns": [
+        {
+          "prompt": "Use a general-purpose subagent, in the foreground (not in the background), to implement a subtract(a, b) function in calc.py, next to add, with a test in test_calc.py. Keep it minimal.",
+          "expect": { "sub": ["sonnet"] }
+        }
+      ]
+    },
+    {
+      "name": "shadow mode changes nothing",
+      "options": { "mainLoop": "shadow" },
+      "allowedTools": "Bash(git status:*)",
+      "turns": [{ "prompt": "git status", "expect": { "main": ["opus"], "status": "(shadow)" } }]
+    },
+    {
+      "name": "floor keeps haiku out",
+      "options": { "minTier": "sonnet" },
+      "allowedTools": "Bash(git status:*)",
+      "turns": [{ "prompt": "git status", "expect": { "main": ["sonnet", "opus"] } }]
+    },
+    {
+      "name": "unclear prompt goes to the classifier",
+      "turns": [
+        {
+          "prompt": "hmm, would you name calc.py differently? One sentence, no tools.",
+          "expect": { "status": "classifier" }
+        }
+      ]
+    },
+    {
+      "name": "/route reports",
+      "allowedTools": "Bash(git status:*)",
+      "turns": [
+        { "prompt": "git status", "expect": { "main": ["haiku"] } },
+        { "prompt": "/route", "expect": { "answerIncludes": "Model router" } }
+      ]
+    }
+  ]
+}

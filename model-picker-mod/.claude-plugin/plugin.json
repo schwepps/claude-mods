@@ -1,0 +1,122 @@
+{
+  "name": "model-router",
+  "version": "0.1.0",
+  "description": "Routes each turn and subagent to the cheapest Claude model that keeps quality, gated by a prompt-cache cost model.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mainLoop": {
+      "type": "string",
+      "title": "Main loop routing",
+      "description": "auto: route turns; shadow: log what it would do, change nothing; off: leave the main loop on /model.",
+      "options": [
+        "auto",
+        "shadow",
+        "off"
+      ],
+      "default": "auto"
+    },
+    "subagents": {
+      "type": "string",
+      "title": "Subagent routing",
+      "description": "auto: pick a model for each spawned subagent; off: leave subagents alone.",
+      "options": [
+        "auto",
+        "off"
+      ],
+      "default": "auto"
+    },
+    "fableMode": {
+      "type": "string",
+      "title": "When Fable may be used",
+      "description": "manual: only ::fable or /route fable; escalation: also after repeated failures; auto: also when a prompt looks very hard.",
+      "options": [
+        "manual",
+        "escalation",
+        "auto"
+      ],
+      "default": "escalation"
+    },
+    "minTier": {
+      "type": "string",
+      "title": "Lowest model allowed",
+      "description": "The router never picks a model below this one.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus"
+      ],
+      "default": "haiku"
+    },
+    "classifier": {
+      "type": "boolean",
+      "title": "Ask Haiku on unclear prompts",
+      "description": "When the keyword rules are unsure, ask Haiku to classify the prompt (about $0.0003 and under a second).",
+      "default": true
+    },
+    "haikuEffort": {
+      "type": "string",
+      "title": "Effort on Haiku detours",
+      "description": "Thinking effort for main-loop turns sent to Haiku. Haiku keeps its own prompt cache, so this never touches the home model's cache. inherit: the session's effort.",
+      "options": [
+        "low",
+        "medium",
+        "inherit"
+      ],
+      "default": "low"
+    },
+    "haikuModel": {
+      "type": "string",
+      "title": "Haiku model id",
+      "description": "Model id used for the haiku tier.",
+      "default": "claude-haiku-5-5"
+    },
+    "sonnetModel": {
+      "type": "string",
+      "title": "Sonnet model id",
+      "description": "Model id used for the sonnet tier.",
+      "default": "claude-sonnet-5-5"
+    },
+    "opusModel": {
+      "type": "string",
+      "title": "Opus model id",
+      "description": "Model id used for the opus tier.",
+      "default": "claude-opus-5-5"
+    },
+    "fableModel": {
+      "type": "string",
+      "title": "Fable model id",
+      "description": "Model id used for the fable tier.",
+      "default": "claude-fable-5-1"
+    },
+    "cacheTtlMinutes": {
+      "type": "number",
+      "title": "Prompt cache lifetime (minutes)",
+      "description": "How long a model's prompt cache is assumed to stay warm.",
+      "default": 60
+    },
+    "cacheWriteMultiplier": {
+      "type": "number",
+      "title": "Cache write price multiplier",
+      "description": "Cache write price as a multiple of input price: 2 for the 1-hour cache, 1.25 for the 5-minute one.",
+      "default": 2
+    },
+    "horizonTurns": {
+      "type": "number",
+      "title": "Turns a downgrade is expected to last",
+      "description": "How many turns the cost model assumes a cheaper model will be used for before returning.",
+      "default": 3
+    },
+    "prices": {
+      "type": "string",
+      "title": "Model prices",
+      "description": "Leave empty for the built-in prices. To override: tier=input/output/cacheRead in USD per million tokens, separated by ';', e.g. opus=4/20/0.2; haiku=0.1/0.5/0.01. Tiers left out keep the built-in price.",
+      "default": ""
+    },
+    "pricesAsOf": {
+      "type": "string",
+      "title": "Date of your prices",
+      "description": "YYYY-MM-DD date your prices were checked; /route warns when they are over 90 days old.",
+      "default": ""
+    }
+  }
+}
