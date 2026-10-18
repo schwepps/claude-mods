@@ -6,6 +6,7 @@ Claude Code mods by [schwepps](https://github.com/schwepps).
 | --- | --- |
 | [model-router](model-picker-mod) | Routes each turn and subagent to the cheapest Claude model that keeps quality, gated by a prompt-cache cost model. `/route` shows status and savings. |
 | [agent-ops](agent-ops-mod/agent-ops) | Live agents dashboard: status, activity, progress, tokens, model and effort, plus day/week/month usage by model. Open it with `/agent-ops`. |
+| [vtsls-lean](vtsls-lean) | The vtsls TypeScript LSP with one tsserver per session and no automatic type acquisition, about 160 MB less per session. Replaces `vtsls@claude-code-lsps`. |
 
 ## Install
 

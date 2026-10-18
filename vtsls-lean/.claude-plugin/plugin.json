@@ -1,0 +1,5 @@
+{
+  "name": "vtsls-lean",
+  "version": "0.1.0",
+  "description": "TypeScript/JavaScript language server (vtsls) with one tsserver per session and no automatic type acquisition."
+}
