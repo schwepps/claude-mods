@@ -2,6 +2,10 @@
   "name": "agent-ops",
   "version": "0.1.0",
   "description": "Live agents dashboard: status, activity, progress, live tokens, model and effort, plus day/week/month usage by model",
+  "author": {
+    "name": "schwepps",
+    "url": "https://github.com/schwepps"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "planMonthlyUsd": {
