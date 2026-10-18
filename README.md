@@ -31,9 +31,11 @@ Answer `y` to add the marketplace, then pick a scope (user scope loads the mod i
 
 In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `schwepps/claude-mods`, then Add plugin.
 
-These mods are hooks modules and need a recent Claude Code build.
+These mods are hooks modules and need a recent Claude Code build: model-router uses `userConfig` pickers (`options`) and does not load before Claude Code v2.1.271.
 
 ## Develop
+
+Run these with Claude Code v2.1.271 or later. Older builds reject the `options` pickers in model-router's manifest and have no `plugin test`. Check `claude --version`: an outdated global install earlier on `PATH` can shadow a newer one.
 
 ```bash
 claude plugin validate model-picker-mod && claude plugin test model-picker-mod

@@ -2,6 +2,10 @@
   "name": "model-router",
   "version": "0.1.0",
   "description": "Routes each turn and subagent to the cheapest Claude model that keeps quality, gated by a prompt-cache cost model.",
+  "author": {
+    "name": "schwepps",
+    "url": "https://github.com/schwepps"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "mainLoop": {
