@@ -21,9 +21,25 @@ import {
   priceAgeDays,
   rank,
   tierOf,
+  userWordsOf,
   withClassifier,
 } from './policy'
 import type { Classification, MainInputs, Settings, Tier, Usage } from './policy'
+import {
+  STATS_DAYS,
+  addSpend,
+  bumpDay,
+  dayKey,
+  describeSessions,
+  describeSpend,
+  lastDays,
+  logDecision,
+  money,
+  readDay,
+  serially,
+  shortSession,
+  sumSpend,
+} from './stats'
 
 type $ = EngineInterface
 
@@ -41,6 +57,7 @@ const FRESH: RouterSession = {
   turn: null,
   agents: {},
   last: null,
+  label: null,
 }
 
 const session = atom({ plugin: 'model-router', key: 'session' } as const, FRESH)
@@ -49,32 +66,9 @@ const UNKNOWN_CONTEXT = 30_000
 const BOOST_TURNS = 3
 const FAILURES_BEFORE_ESCALATION = 3
 const EMA = 0.3
-const LOG_SIZE = 100
-const STATS_DAYS = 30
 const MIN_CLASSIFIER_PROMPT = 20
+const WEEK_DAYS = 7
 const CLASSIFIER_TIMEOUT_MS = 5000
-
-type DayStats = {
-  actual: number
-  baseline: number
-  overhead: number
-  main: Record<Tier, number>
-  subagents: Record<Tier, number>
-  switches: number
-  escalations: number
-}
-
-const emptyCounts = (): Record<Tier, number> => ({ haiku: 0, sonnet: 0, opus: 0, fable: 0 })
-
-const emptyDay = (): DayStats => ({
-  actual: 0,
-  baseline: 0,
-  overhead: 0,
-  main: emptyCounts(),
-  subagents: emptyCounts(),
-  switches: 0,
-  escalations: 0,
-})
 
 function settingsFrom(o: PluginOptions): Settings {
   const pick = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
@@ -138,41 +132,9 @@ function describePrices(settings: Settings, now: number): string {
   return `Prices ($/MTok input/output/cache read, ${source}, ${when}): ${table}`
 }
 
-const dayKey = (ms: number) => `stats:${new Date(ms).toISOString().slice(0, 10)}`
-function money(usd: number): string {
-  const abs = Math.abs(usd)
-  const text = `$${abs.toFixed(abs < 1 ? 3 : 2)}`
-  return usd <= -0.0005 ? `-${text}` : text
-}
-
-// Main-loop and subagent steps run concurrently; $.store has no versioning, so writes queue here.
-let storeQueue: Promise<unknown> = Promise.resolve()
-
-function serially<T>(work: () => Promise<T>): Promise<T> {
-  const run = storeQueue.then(work, work)
-  storeQueue = run.catch(() => undefined)
-  return run
-}
-
-function bumpDay($: $, fn: (d: DayStats) => void) {
-  return serially(async () => {
-    const key = dayKey(await $.clock.now())
-    const day = ((await $.store.get(key)) as DayStats | undefined) ?? emptyDay()
-    fn(day)
-    await $.store.set(key, day)
-  })
-}
-
-function logDecision($: $, entry: DecisionEntry) {
-  return serially(async () => {
-    const log = ((await $.store.get('log')) as DecisionEntry[] | undefined) ?? []
-    await $.store.set('log', [...log, entry].slice(-LOG_SIZE))
-  })
-}
-
 async function showStatus($: $, settings: Settings, tier: Tier | null, reason?: string) {
   if (settings.mainLoop === 'off' && settings.subagents === 'off') return $.ui.status(undefined)
-  const day = ((await $.store.get(dayKey(await $.clock.now()))) as DayStats | undefined) ?? emptyDay()
+  const day = await readDay($, await $.clock.now())
   const saved = day.baseline - day.actual - day.overhead
   const mode = settings.mainLoop === 'shadow' ? ' (shadow)' : ''
   const head = tier ? `⇢ ${tier}${mode}` : `⇢ router${mode}`
@@ -220,6 +182,7 @@ async function planTurn($: $, settings: Settings, turnId: string, home: Tier): P
   const s = await read($, session)
   const now = await $.clock.now()
   const text = s.pendingText?.turnId === turnId ? s.pendingText.text : ''
+  const words = userWordsOf(text)
 
   const isSameHome = s.turn === null || s.turn.home === home
   const current = isSameHome ? (s.lastTier ?? home) : home
@@ -245,7 +208,7 @@ async function planTurn($: $, settings: Settings, turnId: string, home: Tier): P
   let classification: Classification = s.pendingOverride
     ? { tier: s.pendingOverride, confidence: 'high', kind: 'override', reason: `::${s.pendingOverride}` }
     : classifyPrompt(text)
-  if (classifierCanChange(inputs, classification)) classification = await refine($, settings, text, classification)
+  if (classifierCanChange(inputs, classification)) classification = await refine($, settings, words, classification)
 
   const decision = decideMain({ ...inputs, classification })
 
@@ -253,14 +216,16 @@ async function planTurn($: $, settings: Settings, turnId: string, home: Tier): P
   const tier = isApplied ? decision.tier : home
   const plan: TurnPlan = { id: turnId, home, tier, steps: 0, output: 0, failures: 0, startContext: context }
   const isEscalation = classification.kind === 'correction'
+  const sessionId = await $.session.id()
   const entry: DecisionEntry = {
     at: now,
+    session: sessionId,
     scope: 'main',
     from: decision.from,
     to: decision.tier,
     reason: decision.reason,
     isApplied,
-    prompt: text.slice(0, 120),
+    prompt: words.slice(0, 120),
     stayCost: decision.stayCost,
     switchCost: decision.switchCost,
   }
@@ -271,6 +236,7 @@ async function planTurn($: $, settings: Settings, turnId: string, home: Tier): P
     pendingText: null,
     boost: isEscalation ? { tier: decision.tier, turnsLeft: BOOST_TURNS } : cur.boost,
     last: entry,
+    label: cur.label?.session === sessionId || words === '' ? cur.label : { session: sessionId, text: words },
   }))
   await logDecision($, entry)
   if (decision.tier !== decision.from && isApplied) {
@@ -282,6 +248,8 @@ async function planTurn($: $, settings: Settings, turnId: string, home: Tier): P
   await showStatus($, settings, decision.tier, decision.reason)
   return plan
 }
+
+const labelOf = (s: RouterSession, sessionId: string) => (s.label?.session === sessionId ? s.label.text : '')
 
 async function accountMain($: $, settings: Settings, plan: TurnPlan, usage: Usage) {
   const now = await $.clock.now()
@@ -303,22 +271,27 @@ async function accountMain($: $, settings: Settings, plan: TurnPlan, usage: Usag
         ? { ...cur.turn, steps: cur.turn.steps + 1, output: cur.turn.output + usage.output_tokens }
         : cur.turn,
   }))
+  const sessionId = await $.session.id()
   await bumpDay($, d => {
     d.actual += actual
     d.baseline += baseline
     d.main[tier] += 1
+    addSpend(d, sessionId, labelOf(s, sessionId), tier, actual)
   })
 }
 
 async function accountSubagent($: $, settings: Settings, agentId: string, model: string, usage: Usage) {
-  const route = (await read($, session)).agents[agentId]
+  const s = await read($, session)
+  const route = s.agents[agentId]
   const tier = tierOf(model)
   if (!route || !tier) return
   const actual = costOf(tier, usage, settings.cacheWriteMultiplier, settings.prices)
   const baseline = costOf(route.baseline, usage, settings.cacheWriteMultiplier, settings.prices)
+  const sessionId = await $.session.id()
   await bumpDay($, d => {
     d.actual += actual
     d.baseline += baseline
+    addSpend(d, sessionId, labelOf(s, sessionId), tier, actual)
   })
 }
 
@@ -327,6 +300,8 @@ async function describe($: $, settings: Settings, arg: string): Promise<string> 
   const now = await $.clock.now()
   const lines: string[] = []
 
+  if (arg === 'sessions') return describeSessions(await lastDays($, now, WEEK_DAYS))
+
   if (arg === 'log') {
     const log = ((await $.store.get('log')) as DecisionEntry[] | undefined) ?? []
     if (log.length === 0) return 'Model router: no decisions yet.'
@@ -334,7 +309,8 @@ async function describe($: $, settings: Settings, arg: string): Promise<string> 
       const time = new Date(d.at).toISOString().slice(11, 16)
       const mark = d.isApplied ? '' : ' (shadow)'
       const prompt = d.prompt ? `  “${d.prompt}”` : ''
-      lines.push(`${time} ${d.scope.padEnd(8)} ${d.from} → ${d.to}${mark}  ${d.reason}${prompt}`)
+      const who = d.session ? ` [${shortSession(d.session)}]` : ''
+      lines.push(`${time}${who} ${d.scope.padEnd(8)} ${d.from} → ${d.to}${mark}  ${d.reason}${prompt}`)
     }
     return lines.join('\n')
   }
@@ -352,27 +328,25 @@ async function describe($: $, settings: Settings, arg: string): Promise<string> 
     lines.push(`Last decision: ${s.last.from} → ${s.last.to}: ${s.last.reason}${est}`)
   }
 
-  let week = { actual: 0, baseline: 0, overhead: 0 }
-  for (let i = 0; i < 7; i++) {
-    const day = (await $.store.get(dayKey(now - i * 86_400_000))) as DayStats | undefined
-    if (!day) continue
-    if (i === 0) {
-      const saved = day.baseline - day.actual - day.overhead
-      const pct = day.baseline > 0 ? Math.round((saved / day.baseline) * 100) : 0
-      lines.push(
-        `Today (estimated at API list prices): ${money(day.actual + day.overhead)} spent, ${money(day.baseline)} without routing, saved ${money(saved)} (${pct}%)`,
-        `  main-loop requests: ${TIERS.map(t => `${t} ${day.main[t]}`).join(', ')} · subagents: ${TIERS.map(t => `${t} ${day.subagents[t]}`).join(', ')}`,
-        `  switches ${day.switches}, escalations ${day.escalations}, classifier ${money(day.overhead)}`,
-      )
-    }
-    week = {
-      actual: week.actual + day.actual,
-      baseline: week.baseline + day.baseline,
-      overhead: week.overhead + day.overhead,
-    }
+  if (await $.store.get(dayKey(now))) {
+    const day = await readDay($, now)
+    const saved = day.baseline - day.actual - day.overhead
+    const pct = day.baseline > 0 ? Math.round((saved / day.baseline) * 100) : 0
+    lines.push(
+      `Today (estimated at API list prices): ${money(day.actual + day.overhead)} spent, ${money(day.baseline)} without routing, saved ${money(saved)} (${pct}%)`,
+      `  spend by model: ${describeSpend(day.spend)}`,
+      `  main-loop requests: ${TIERS.map(t => `${t} ${day.main[t]}`).join(', ')} · subagents: ${TIERS.map(t => `${t} ${day.subagents[t]}`).join(', ')}`,
+      `  switches ${day.switches}, escalations ${day.escalations}, classifier ${money(day.overhead)}`,
+    )
   }
-  if (week.baseline > 0) {
-    lines.push(`Last 7 days: saved ${money(week.baseline - week.actual - week.overhead)} of ${money(week.baseline)}`)
+  const week = await lastDays($, now, WEEK_DAYS)
+  const baseline = week.reduce((sum, d) => sum + d.baseline, 0)
+  if (baseline > 0) {
+    const spent = week.reduce((sum, d) => sum + d.actual + d.overhead, 0)
+    lines.push(
+      `Last 7 days: saved ${money(baseline - spent)} of ${money(baseline)}`,
+      `Last 7 days by model: ${describeSpend(sumSpend(week))} · /route sessions for each session`,
+    )
   }
   lines.push(describePrices(settings, now), ...priceWarnings(settings, now).map(w => `⚠ ${w}`))
   lines.push('Per prompt: start it with ::haiku, ::sonnet, ::opus or ::fable. Sent alone, ::opus pins and ::auto unpins.')
@@ -386,8 +360,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'route',
-      description: 'Model router: status and savings; /route haiku|sonnet|opus|fable pins, /route auto unpins, /route log',
-      argumentHint: '[auto|haiku|sonnet|opus|fable|log]',
+      description: 'Model router: status and savings; /route haiku|sonnet|opus|fable pins, /route auto unpins, /route log, /route sessions',
+      argumentHint: '[auto|haiku|sonnet|opus|fable|log|sessions]',
     })
     await serially(async () => {
       const cutoff = dayKey((await $.clock.now()) - STATS_DAYS * 86_400_000)
@@ -475,6 +449,7 @@ export const register: Register = (on, options) => {
       })
       await logDecision($, {
         at: await $.clock.now(),
+        session: await $.session.id(),
         scope: 'main',
         from: plan.tier,
         to: tier,
@@ -551,6 +526,7 @@ export const register: Register = (on, options) => {
     })
     await logDecision($, {
       at: await $.clock.now(),
+      session: await $.session.id(),
       scope: 'subagent',
       from: baseline,
       to: decision.tier,

@@ -149,10 +149,39 @@ export function parseOverride(text: string): { tier: Tier | 'auto' | null; rest:
 const ACK = String.raw`(y|yes|yep|yeah|ok|okay|sure|go|go ahead|go on|do it|continue|proceed|lgtm|ship it|approved?|sounds good|perfect|great|thanks|thank you|\d{1,2}|option \d{1,2}|[a-d])`
 const CONTINUATION = new RegExp(String.raw`^\s*${ACK}([\s,.!]+${ACK})*[\s.!]*$`, 'i')
 
-const DELIVERY = /^\s*<(agent-message|task-notification|teammate-message|channel-message)\b/i
+const APP_BLOCKS = [
+  'system-reminder',
+  'cross-session-message',
+  'side-sessions-event',
+  'ci-monitor-event',
+  'task-notification',
+  'agent-message',
+  'teammate-message',
+  'channel-message',
+  'artifact-view-context',
+]
+const APP_BLOCK = new RegExp(String.raw`<(${APP_BLOCKS.join('|')})\b[^>]*?(?:\/>|>[\s\S]*?<\/\1\s*>)`, 'gi')
+const COMMAND_NAME = /<command-name>/i
+const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/i
+
+/** What the person typed: blocks the app or other sessions add are dropped, a command keeps only its arguments. */
+export function userWordsOf(text: string): string {
+  const rest = text.replace(APP_BLOCK, '')
+  if (COMMAND_NAME.test(rest)) return (COMMAND_ARGS.exec(rest)?.[1] ?? '').trim()
+  return rest.trim()
+}
 
 const CORRECTION =
-  /\b(still (fails?|failing|broken|wrong|not working)|(doesn'?t|didn'?t|does not|did not) work|not working|that'?s (wrong|not right|incorrect|not what)|you broke|regress(ed|ion)|same error|try again|wrong (answer|approach|file)|not what i (asked|wanted|meant))\b/i
+  /\b(still (fails?|failing|broken|wrong|not working)|(doesn'?t|didn'?t|does not|did not) work|not working|that'?s (wrong|not right|incorrect|not what)|you broke|regress(ed|ion)|same error|try again|wrong (answer|approach|file)|not what i (asked|wanted|meant))\b/gi
+const DENIED = /\b(no|not|without|never|zero)\s+(a\s+|any\s+)?$/i
+
+function isCorrection(text: string): boolean {
+  for (const m of text.matchAll(CORRECTION)) {
+    const isDenied = /^regress/i.test(m[0]) && DENIED.test(text.slice(0, m.index))
+    if (!isDenied) return true
+  }
+  return false
+}
 
 type Rule = { pattern: RegExp; tier: Tier; weight: number; label: string }
 
@@ -174,17 +203,17 @@ const RULES: Rule[] = [
 const LONG_PROMPT = 1500
 
 export function classifyPrompt(text: string): Classification {
-  const trimmed = text.trim()
-  if (trimmed === '') {
+  if (text.trim() === '') {
     return { tier: 'current', confidence: 'high', kind: 'continuation', reason: 'no new prompt' }
   }
-  if (DELIVERY.test(trimmed)) {
-    return { tier: 'current', confidence: 'high', kind: 'continuation', reason: 'report from a subagent or task' }
+  const trimmed = userWordsOf(text)
+  if (trimmed === '') {
+    return { tier: 'current', confidence: 'high', kind: 'continuation', reason: 'message from the app, a session or an agent' }
   }
   if (CONTINUATION.test(trimmed)) {
     return { tier: 'current', confidence: 'high', kind: 'continuation', reason: 'short follow-up' }
   }
-  if (CORRECTION.test(trimmed)) {
+  if (isCorrection(trimmed)) {
     return { tier: 'current', confidence: 'high', kind: 'correction', reason: 'previous answer rejected' }
   }
 
@@ -320,7 +349,8 @@ export function decideMain(i: MainInputs): Decision {
 
   if (c.kind === 'correction') {
     const up = rank(current) < rank(home) ? home : nextTier(current)
-    const allow = settings.fableMode !== 'manual'
+    const isRepeated = i.boost !== null
+    const allow = settings.fableMode === 'auto' || (settings.fableMode === 'escalation' && isRepeated)
     return { tier: clamp(up, settings, allow), from, reason: `escalated: ${c.reason}` }
   }
 

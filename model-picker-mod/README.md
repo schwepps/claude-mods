@@ -18,9 +18,10 @@ A Claude Code mod that picks the model (Haiku, Sonnet, Opus, Fable) for each tur
    - Unclear prompts stay on home.
    - Follow-ups ("yes", "go ahead", "2") stay on the current model.
 4. **Escalation.**
-   - "Still failing", "that's wrong" and similar replies undo a downgrade. If you were already on home, they move up one tier for three turns.
+   - "Still failing", "that's wrong" and similar replies undo a downgrade. If you were already on home, they move up one tier for three turns. Fable is the exception: with the default `fableMode`, it takes a second rejection while the first is still held.
+   - "No regression" and "not a regression" are not rejections.
    - Three failed tool calls in a row on a downgraded model return the rest of the turn to home.
-5. **Classification.** Keyword rules run first. When the rules are unsure, and only when the answer could change the decision, the router asks Haiku 5.5 (about $0.0003 per call).
+5. **Classification.** Only the words you typed are classified. Blocks the app adds (system reminders, messages from other sessions, CI and task notices, subagent reports) are dropped first; a turn made only of them stays on the current model. For a slash command, only the text after the command counts. Keyword rules run first. When the rules are unsure, and only when the answer could change the decision, the router asks Haiku 5.5 (about $0.0003 per call).
 
 If any part of the router fails, the turn runs on your `/model` unchanged.
 
@@ -31,8 +32,9 @@ If any part of the router fails, the turn runs on your `/model` unchanged.
 | `::haiku fix the typo in README` | One turn on Haiku. The prefix is stripped before the model sees the prompt. |
 | `::opus` (on its own) | Pins Opus for the session. |
 | `::auto` (on its own) | Unpins. |
-| `/route` | Status, last decision with its cost estimate, today's and this week's savings. |
-| `/route log` | The last 20 routing decisions. |
+| `/route` | Status, last decision with its cost estimate, today's and this week's savings and spend by model. |
+| `/route log` | The last 20 routing decisions, each with its session. |
+| `/route sessions` | The 10 most expensive sessions of the last 7 days, with spend by model. |
 | `/route sonnet` · `/route auto` | Pin or unpin. |
 
 The status line shows the current tier, the reason for it, and today's estimated savings.
@@ -45,7 +47,7 @@ Change these in the config menu, or under `pluginConfigs.model-router` in settin
 | --- | --- | --- |
 | `mainLoop` | `auto` | `shadow` logs decisions but changes nothing; `off` disables main-loop routing |
 | `subagents` | `auto` | `off` leaves subagents alone |
-| `fableMode` | `escalation` | `manual`: only `::fable`; `auto`: very hard prompts too |
+| `fableMode` | `escalation` | `escalation`: `::fable`, or a second rejection in a row; `manual`: only `::fable`; `auto`: very hard prompts and the first rejection too |
 | `minTier` | `haiku` | Floor: the router never picks a model below this |
 | `classifier` | `true` | Ask Haiku about unclear prompts |
 | `haikuEffort` | `low` | Effort for main-loop turns sent to Haiku; `inherit` uses the session's. Haiku keeps its own cache, so this never touches the home model's cache |

@@ -1,6 +1,6 @@
 {
   "name": "model-router",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Routes each turn and subagent to the cheapest Claude model that keeps quality, gated by a prompt-cache cost model.",
   "author": {
     "name": "schwepps",
@@ -32,7 +32,7 @@
     "fableMode": {
       "type": "string",
       "title": "When Fable may be used",
-      "description": "manual: only ::fable or /route fable; escalation: also after repeated failures; auto: also when a prompt looks very hard.",
+      "description": "manual: only ::fable or /route fable; escalation: also on a second rejection in a row; auto: also on the first rejection and when a prompt looks very hard.",
       "options": [
         "manual",
         "escalation",
