@@ -12,6 +12,7 @@ import {
   parsePrices,
   priceAgeDays,
   tierOf,
+  userWordsOf,
   withClassifier,
 } from '../hooks/policy'
 import type { Classification, CostInputs, MainInputs } from '../hooks/policy'
@@ -47,7 +48,53 @@ function main(classification: Classification, over: Partial<MainInputs> = {}): M
   }
 }
 
+const APP_MESSAGES = [
+  '<system-reminder>\nThe session "L3" you started finished a turn. It reported: security migration, architecture trade-offs, no regression.\n</system-reminder>',
+  '<cross-session-message from="local_1">\nReview of #218: fix the security issue in the auth flow, there is no regression\n</cross-session-message>',
+  '<ci-monitor-event>"Auto-fix pull requests" is watching schwepps/app#12: 2 checks failed</ci-monitor-event>',
+  '<system-reminder>Linked sessions now</system-reminder>\n<side-sessions-event>L2 finished: refactor the entire module</side-sessions-event>',
+  '<artifact-view-context>Design the architecture page</artifact-view-context>',
+  '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>',
+]
+
+describe('userWordsOf', () => {
+  test('app blocks are removed and the typed words kept', () => {
+    const text = '<system-reminder>\nLinked sessions now: c2 = local_1 (running)\n</system-reminder>\n\nTake fixes 1 and 2 into design'
+    expect(userWordsOf(text)).toBe('Take fixes 1 and 2 into design')
+  })
+
+  test('a command keeps only what was typed after it', () => {
+    const command = '<command-message>sc:flow</command-message>\n<command-name>/sc:flow</command-name>\n<command-args>start fix the typo</command-args>'
+    expect(userWordsOf(command)).toBe('start fix the typo')
+    expect(userWordsOf('<command-message>commit</command-message>\n<command-name>/commit</command-name>')).toBe('')
+  })
+
+  test('a command quoted inside an app block does not hide the typed words', () => {
+    const text = '<system-reminder>Skills run as <command-name>/x</command-name></system-reminder>\nfix the race condition in the queue'
+    expect(userWordsOf(text)).toBe('fix the race condition in the queue')
+  })
+
+  test("pasted content is the user's own material", () => {
+    expect(userWordsOf('<pasted_content id="7">TypeError: x is undefined</pasted_content>\nwhy?')).toContain('TypeError: x is undefined')
+  })
+
+  test('messages from the app, other sessions and agents have no typed words', () => {
+    for (const text of APP_MESSAGES) expect(userWordsOf(text)).toBe('')
+  })
+})
+
 describe('classifyPrompt', () => {
+  test('app messages keep the current model, whatever they say', () => {
+    for (const text of APP_MESSAGES) {
+      expect(classifyPrompt(text)).toMatchObject({ tier: 'current', kind: 'continuation' })
+    }
+  })
+
+  test('a reminder around typed words is routed by the words alone', () => {
+    const text = '<system-reminder>Plan the security architecture and migration</system-reminder>\ngit status'
+    expect(classifyPrompt(text)).toMatchObject({ tier: 'haiku', confidence: 'high' })
+  })
+
   test('mechanical requests are confidently haiku', () => {
     for (const text of ['git status', 'commit these changes', 'rename foo to bar in utils.ts', 'run the tests']) {
       expect(classifyPrompt(text)).toMatchObject({ tier: 'haiku', confidence: 'high' })
@@ -74,6 +121,13 @@ describe('classifyPrompt', () => {
     const report = '<agent-message from="a23">\n[Subagent hand-back] Investigate the root cause and design the architecture</agent-message>'
     expect(classifyPrompt(report)).toMatchObject({ tier: 'current', kind: 'continuation' })
     expect(classifyPrompt('<task-notification>build finished</task-notification>').kind).toBe('continuation')
+  })
+
+  test('a regression that is denied is not a correction', () => {
+    for (const text of ['the tests pass, no regression in the export', 'not a regression, the stack was slow', 'there were no regressions']) {
+      expect(classifyPrompt(text).kind).not.toBe('correction')
+    }
+    expect(classifyPrompt('it regressed after your change').kind).toBe('correction')
   })
 
   test('rejections are corrections', () => {
@@ -153,10 +207,13 @@ describe('decideMain', () => {
     expect(decideMain(main(unsure, { current: 'haiku' })).tier).toBe('opus')
   })
 
-  test('a correction first undoes a downgrade, then escalates one tier, fable allowed in escalation mode', () => {
+  test('a correction first undoes a downgrade, then escalates one tier, fable only on a repeated correction', () => {
     const c: Classification = { tier: 'current', confidence: 'high', kind: 'correction', reason: 'rejected' }
     expect(decideMain(main(c, { current: 'haiku' })).tier).toBe('opus')
-    expect(decideMain(main(c)).tier).toBe('fable')
+    expect(decideMain(main(c)).tier).toBe('opus')
+    expect(decideMain(main(c, { boost: 'opus' })).tier).toBe('fable')
+    expect(decideMain(main(c, { settings: { fableMode: 'auto', minTier: 'haiku' } })).tier).toBe('fable')
+    expect(decideMain(main(c, { boost: 'opus', settings: { fableMode: 'manual', minTier: 'haiku' } })).tier).toBe('opus')
     expect(decideMain(main(c, { home: 'sonnet', current: 'sonnet' })).tier).toBe('opus')
     expect(decideMain(main(c, { settings: { fableMode: 'manual', minTier: 'haiku' } })).tier).toBe('opus')
   })

@@ -14,6 +14,7 @@ export type TurnPlan = {
 
 export type DecisionEntry = {
   at: number
+  session?: string
   scope: 'main' | 'subagent'
   from: Tier
   to: Tier
@@ -40,6 +41,7 @@ export type RouterSession = {
   turn: TurnPlan | null
   agents: Record<string, AgentRoute>
   last: DecisionEntry | null
+  label: { session: string; text: string } | null
 }
 
 declare module 'claude-code' {

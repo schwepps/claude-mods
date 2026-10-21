@@ -24,6 +24,24 @@ describe('conversation flows', () => {
     expect(w.classifierCalls).toBe(0)
   })
 
+  test('on a sonnet session, messages from the app or the coordinator never pull a turn up to opus', async ($, on) => {
+    const w = world(on, { classifier: { answer: 'opus' } })
+
+    await turn($, 't1', '<system-reminder>\nThe session "P4" finished a turn. It reported: security review of the migration, architecture trade-offs.\n</system-reminder>', { model: SONNET })
+    await turn($, 't2', '<cross-session-message from="local_1">\nReview: fix the security issue and investigate the root cause, there is no regression\n</cross-session-message>', { model: SONNET })
+
+    expect(w.models).toEqual([SONNET, SONNET])
+    expect(w.classifierCalls).toBe(0)
+  })
+
+  test('a command turn is routed by what was typed after the command', async ($, on) => {
+    const w = world(on)
+
+    await turn($, 't1', '<command-message>security-review</command-message>\n<command-name>/security-review</command-name>\n<command-args>git status</command-args>')
+
+    expect(w.models).toEqual([HAIKU])
+  })
+
   test('a correction undoes the detour and holds home for two more turns', async ($, on) => {
     const w = world(on)
 
@@ -36,7 +54,17 @@ describe('conversation flows', () => {
     expect(w.models).toEqual([HAIKU, OPUS, OPUS, OPUS, HAIKU])
   })
 
-  test('a correction on the home model escalates to fable', async ($, on) => {
+  test('one correction on the home model holds it, a second in a row escalates to fable', async ($, on) => {
+    const w = world(on)
+
+    await turn($, 't1', 'Design the architecture for the sync engine and weigh the trade-offs')
+    await turn($, 't2', 'still failing, same error')
+    await turn($, 't3', "that's wrong, try again")
+
+    expect(w.models).toEqual([OPUS, OPUS, FABLE])
+  })
+
+  test('fableMode auto escalates the first correction to fable', { options: { fableMode: 'auto' } }, async ($, on) => {
     const w = world(on)
 
     await turn($, 't1', 'Design the architecture for the sync engine and weigh the trade-offs')
@@ -328,6 +356,50 @@ describe('subagents', () => {
 })
 
 describe('reporting', () => {
+  test('the log shows the typed words, not the app blocks around them', async ($, on) => {
+    world(on)
+
+    await turn($, 't1', '<system-reminder>Linked sessions now: c2 running</system-reminder>\ngit status')
+
+    const log = (await route($, 'log')).text
+    expect(log).toContain('“git status”')
+    expect(log).not.toContain('system-reminder')
+  })
+
+  test('/route shows spend by model for today and the last 7 days', async ($, on) => {
+    world(on)
+
+    await turn($, 't1', 'git status')
+    await turn($, 't2', 'Design the architecture for the sync engine and weigh the trade-offs')
+
+    const status = (await route($)).text
+    expect(status).toMatch(/spend by model: haiku \$0\.\d{3} · opus \$0\.\d{3}/)
+    expect(status).toMatch(/Last 7 days by model: haiku \$0\.\d{3} · opus \$0\.\d{3}/)
+  })
+
+  test('/route sessions lists each session with its spend by model, most expensive first', async ($, on) => {
+    const w = world(on, { classifier: { answer: 'sonnet' } })
+
+    await turn($, 't1', '<system-reminder>Linked sessions now</system-reminder>\ngit status')
+    w.set({ sessionId: 'bbbbbbbb-0000-4000-8000-000000000000' })
+    await turn($, 't2', 'Design the architecture for the sync engine and weigh the trade-offs')
+    await spawn($, 'general-purpose', 'Implement the CSV export function and write tests for it')
+    await step($, 'sub-1', 0, SONNET, 'agent-1')
+
+    const lines = ((await route($, 'sessions')).text ?? '').split('\n')
+    expect(lines[0]).toContain('Sessions, last 7 days')
+    expect(lines[1]).toMatch(/bbbbbbbb .*sonnet \$0\.\d{3} · opus \$0\.\d{3}.*“Design the architecture/)
+    expect(lines[2]).toMatch(/aaaaaaaa .*haiku \$0\.\d{3}.*“git status”/)
+  })
+
+  test('/route log names the session of each decision', async ($, on) => {
+    world(on)
+
+    await turn($, 't1', 'git status')
+
+    expect((await route($, 'log')).text).toContain('[aaaaaaaa]')
+  })
+
   test('/route and /route log read cleanly', async ($, on) => {
     const w = world(on)
 

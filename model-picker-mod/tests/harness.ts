@@ -25,10 +25,11 @@ export type WorldKnobs = {
   context: number
   sessionTokens: number
   classifier: ClassifierBehaviour
+  sessionId: string
 }
 
 export function world(on: On, initial: Partial<WorldKnobs> = {}): World {
-  let knobs: WorldKnobs = { context: 40_000, sessionTokens: 40_000, classifier: { answer: 'opus' }, ...initial }
+  let knobs: WorldKnobs = { context: 40_000, sessionTokens: 40_000, classifier: { answer: 'opus' }, sessionId: 'aaaaaaaa-0000-4000-8000-000000000000', ...initial }
   const w: World = {
     clock: mock.clock(on, { now: 1_000_000 }),
     models: [],
@@ -64,6 +65,7 @@ export function world(on: On, initial: Partial<WorldKnobs> = {}): World {
   on('session.usage', () => ({
     value: { startedAt: 0, context: { tokens: knobs.sessionTokens, window: 1_000_000 }, rateLimits: [] },
   }))
+  on('session.id', () => ({ value: knobs.sessionId }))
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
